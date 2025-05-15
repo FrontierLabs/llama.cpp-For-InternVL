@@ -155,8 +155,10 @@ set   (GGML_SYCL_TARGET "INTEL" CACHE STRING
                                             "ggml: sycl target device")
 
 # extra artifacts
-option(GGML_BUILD_TESTS    "ggml: build tests"    ${GGML_STANDALONE})
-option(GGML_BUILD_EXAMPLES "ggml: build examples" ${GGML_STANDALONE})
+# option(GGML_BUILD_TESTS    "ggml: build tests"    ${GGML_STANDALONE})
+option(GGML_BUILD_TESTS    "ggml: build tests"    OFF)
+# option(GGML_BUILD_EXAMPLES "ggml: build examples" ${GGML_STANDALONE})
+option(GGML_BUILD_EXAMPLES "ggml: build examples" OFF)
 
 #
 # dependencies
@@ -186,14 +188,14 @@ add_subdirectory(src)
 # tests and examples
 #
 
-if (GGML_BUILD_TESTS)
-    enable_testing()
-    add_subdirectory(tests)
-endif ()
+#if (GGML_BUILD_TESTS)
+#    enable_testing()
+#    add_subdirectory(tests)
+#endif ()
 
-if (GGML_BUILD_EXAMPLES)
-    add_subdirectory(examples)
-endif ()
+#if (GGML_BUILD_EXAMPLES)
+#    add_subdirectory(examples)
+#endif ()
 
 #
 # install
@@ -245,11 +247,11 @@ if (GGML_METAL)
     endif()
 endif()
 
-if (GGML_STANDALONE)
-    configure_file(${CMAKE_CURRENT_SOURCE_DIR}/ggml.pc.in
-        ${CMAKE_CURRENT_BINARY_DIR}/ggml.pc
-        @ONLY)
-
-    install(FILES ${CMAKE_CURRENT_BINARY_DIR}/ggml.pc
-        DESTINATION share/pkgconfig)
-endif()
+#if (GGML_STANDALONE)
+#    configure_file(${CMAKE_CURRENT_SOURCE_DIR}/ggml.pc.in
+#        ${CMAKE_CURRENT_BINARY_DIR}/ggml.pc
+#        @ONLY)
+#
+#    install(FILES ${CMAKE_CURRENT_BINARY_DIR}/ggml.pc
+#        DESTINATION share/pkgconfig)
+#endif()

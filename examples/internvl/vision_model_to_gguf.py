@@ -28,7 +28,7 @@ ap.add_argument("-o", "--output-dir", help="Directory to save GGUF files. Defaul
 # with proper
 args = ap.parse_args()
 
-model_path = args.model_path
+model_path = args.model_path.split(",")[0]
 model_name = os.path.basename(model_path).replace(".pth", "")
 dir_model = os.path.dirname(model_path)
 
@@ -60,7 +60,8 @@ else:
 output_dir = args.output_dir if args.output_dir is not None else dir_model
 # os.makedirs(output_dir, exist_ok=True)
 output_prefix = os.path.basename(output_dir).replace("ggml_", "")
-fname_out = os.path.join(output_dir, f"{model_name}-{ftype_str[ftype]}.gguf")
+fname_out = os.path.join(output_dir, "model.safetensors.gguf")
+# fname_out = os.path.join(output_dir, f"{model_name}-{ftype_str[ftype]}.gguf")
 fout = GGUFWriter(path=fname_out, arch=model_name)
 
 fout.add_file_type(ftype)
@@ -99,48 +100,52 @@ image_std = preprocessor_config["image_std"]
 fout.add_array("clip.vision.image_mean", image_mean)
 fout.add_array("clip.vision.image_std", image_std)
 
-for name, data in model.items():
-    if name.find('language_model') != -1:
-        continue
-    name = get_tensor_name(name)
+model_names = args.model_path.split(",")
+for name_ in model_names:
+    model = load_file(name_)
 
-    # replace mlp tensor names and more
+    for name, data in model.items():
+        if name.find('language_model') != -1:
+            continue
+        name = get_tensor_name(name)
 
-    # if name.startswith("mlp1"): name = name.replace("mlp1", "mm")
-    # if "attn.proj" in name: name = name.replace("attn.proj", "attn_out")
-    # if "mlp.fc1" in name: name = name.replace("mlp.fc1", "ffn_down")
-    # if "mlp.fc2" in name: name = name.replace("mlp.fc2", "ffn_up")
+        # replace mlp tensor names and more
 
-    data = data.float().numpy()
-    # pw and dw conv ndim==4
-    if (data.ndim == 2 or data.ndim == 4) and ftype == 1:
-        data = data.astype(np.float16)
-    # split in weight/bias into q,k,v
-    if ".attn.qkv" in name:
-        # [1024*3, 1024] -> 3*[1024, 1024]
-        print(f"Splitting {name} with shape {data.shape}")
-        if data.shape[0] == 1024*3:
-            data = data.reshape(3, 1024, -1)
-            qkv = [data[0].squeeze(), data[1].squeeze(), data[2].squeeze()]
-        elif data.shape[0] == 1024*3:
-            qkv = np.split(data, 3, axis=0)
+        # if name.startswith("mlp1"): name = name.replace("mlp1", "mm")
+        # if "attn.proj" in name: name = name.replace("attn.proj", "attn_out")
+        # if "mlp.fc1" in name: name = name.replace("mlp.fc1", "ffn_down")
+        # if "mlp.fc2" in name: name = name.replace("mlp.fc2", "ffn_up")
+
+        data = data.float().numpy()
+        # pw and dw conv ndim==4
+        if (data.ndim == 2 or data.ndim == 4) and ftype == 1:
+            data = data.astype(np.float16)
+        # split in weight/bias into q,k,v
+        if ".attn.qkv" in name:
+            # [1024*3, 1024] -> 3*[1024, 1024]
+            print(f"Splitting {name} with shape {data.shape}")
+            if data.shape[0] == 1024*3:
+                data = data.reshape(3, 1024, -1)
+                qkv = [data[0].squeeze(), data[1].squeeze(), data[2].squeeze()]
+            elif data.shape[0] == 1024*3:
+                qkv = np.split(data, 3, axis=0)
+            else:
+                raise ValueError(f"Unknown shape {data.shape}")
+            
+
+            print(f"{name} shape {data.shape} split into {len(qkv)} shape: {qkv[0].shape}, {qkv[1].shape}, {qkv[2].shape}")
+            
+            # original
+            fout.add_tensor(name.replace(".attn.qkv", ".attn.q"), qkv[0])
+            fout.add_tensor(name.replace(".attn.qkv", ".attn.k"), qkv[1])
+            fout.add_tensor(name.replace(".attn.qkv", ".attn.v"), qkv[2])
+
+            # change naming 
+            # fout.add_tensor(name.replace(".attn.qkv", ".attn_q"), qkv[0])
+            # fout.add_tensor(name.replace(".attn.qkv", ".attn_k"), qkv[1])
+            # fout.add_tensor(name.replace(".attn.qkv", ".attn_v"), qkv[2])
         else:
-            raise ValueError(f"Unknown shape {data.shape}")
-        
-
-        print(f"{name} shape {data.shape} split into {len(qkv)} shape: {qkv[0].shape}, {qkv[1].shape}, {qkv[2].shape}")
-        
-        # original
-        fout.add_tensor(name.replace(".attn.qkv", ".attn.q"), qkv[0])
-        fout.add_tensor(name.replace(".attn.qkv", ".attn.k"), qkv[1])
-        fout.add_tensor(name.replace(".attn.qkv", ".attn.v"), qkv[2])
-
-        # change naming 
-        # fout.add_tensor(name.replace(".attn.qkv", ".attn_q"), qkv[0])
-        # fout.add_tensor(name.replace(".attn.qkv", ".attn_k"), qkv[1])
-        # fout.add_tensor(name.replace(".attn.qkv", ".attn_v"), qkv[2])
-    else:
-        fout.add_tensor(name, data)
+            fout.add_tensor(name, data)
 
 fout.write_header_to_file()
 fout.write_kv_data_to_file()

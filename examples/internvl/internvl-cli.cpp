@@ -233,6 +233,70 @@ static void process_prompt(struct internvl_context * ctx_internvl, struct intern
     printf("\n");
     }
 
+
+static void process_prompt_no_image(struct internvl_context * ctx_internvl, gpt_params * params, const std::string & prompt) {
+    int n_past = 0;
+
+    const int max_tgt_len = params->n_predict < 0 ? 256 : params->n_predict;
+    const bool add_bos = llama_add_bos_token(llama_get_model(ctx_internvl->ctx));
+    // const bool add_bos = llama_should_add_bos_token(llama_get_model(ctx_internvl->ctx));
+
+    // llava chat format is "'<|im_start|>system\nYou are an AI assistant whose name is InternLM (书生·浦语).<|im_end|><|im_start|>user\n<image>\n请描述图片.<|im_end|><|im_start|>assistant\n'"
+    std::size_t img_tok_pos = prompt.find("<image>");
+    std::string prompt1;
+    std::string prompt2;
+
+    if (img_tok_pos != std::string::npos) {
+        prompt1 = prompt.substr(0, img_tok_pos);
+        prompt2 = prompt.substr(img_tok_pos + 7);
+    }
+    else {
+        prompt1 = "";
+        prompt2 = "\n" + prompt;
+    }
+    
+    eval_string(ctx_internvl->ctx, ("<|im_start|>system\n你是由上海人工智能实验室联合商汤科技开发的书生多模态大模型，英文名叫InternVL, 是一个有用无害的人工智能助手。<|im_end|><|im_start|>user\n" + prompt1 + "<img>").c_str(), params->n_batch, &n_past, true);
+    // eval_string(ctx_internvl->ctx, ("<|im_start|>system\nYou are an AI assistant whose name is InternLM (书生·浦语).<|im_end|><|im_start|>user\n" + prompt1 + "<img>").c_str(), params->n_batch, &n_past, true);
+    // internvl_eval_image_embed(ctx_internvl->ctx, image_embed, params->n_batch, &n_past); // exception Date: 1/9/2025
+    eval_string(ctx_internvl->ctx, ("</img>" + prompt2 + "<|im_end|><|im_start|>assistant\n").c_str(), params->n_batch, &n_past, false);
+    // generate the response
+
+    fprintf(stderr, "\n");
+
+    // struct llama_sampler * smpl = gpt_sampler_init(ctx_internvl->model, params->sparams);
+    struct gpt_sampler * smpl = gpt_sampler_init(ctx_internvl->model, params->sparams);
+    // struct llama_sampler * smpl = llama_sampler_chain_init(params->sparams);
+
+    // auto sparams = llama_sampler_chain_default_params();
+    // struct llama_sampler * smpl = llama_sampler_chain_init(params -> sparams);
+    // struct llama_sampler * smpl = llama_sampler_chain_init(sparams);
+    // struct llama_sampler * smpl = llama_sampler_init(params->sparams);
+    
+    // struct llama_sampler * smpl = llama_sampler_chain_init(params->sparams);
+
+    if (params->n_predict == -1) {
+        while (true) {
+            const char *tmp = sample(smpl, ctx_internvl->ctx, &n_past); // exception Date: 1/10/2025
+            if (strcmp(tmp, "</s>") == 0 || strcmp(tmp, "<|im_end|>") == 0)
+                break;
+            printf("%s", tmp);
+            fflush(stdout);
+        }
+    } else {
+        for (int i = 0; i < max_tgt_len; i++) {
+            const char *tmp = sample(smpl, ctx_internvl->ctx, &n_past);
+            if (strcmp(tmp, "</s>") == 0 || strcmp(tmp, "<|im_end|>") == 0)
+                break;
+            printf("%s", tmp);
+            fflush(stdout);
+        }
+    }
+
+    // llama_sampler_free(smpl);
+    gpt_sampler_free(smpl);
+    printf("\n");
+    }
+
 static struct llama_model * internvl_init(gpt_params * params) {
     llama_backend_init();
     llama_numa_init(params->numa);
@@ -317,11 +381,12 @@ int main(int argc, char ** argv) {
     llama_log_set(llama_log_callback_logTee, nullptr);
 #endif // LOG_DISABLE_LOGS
 
-    if (params.mmproj.empty() || (params.image.empty() && !prompt_contains_image(params.prompt))) {
-        print_usage(argc, argv);
-        // print_usage(argc, argv, params);
-        return 1;
-    }
+    // if (params.mmproj.empty() || (params.image.empty() && !prompt_contains_image(params.prompt))) {
+    //     print_usage(argc, argv);
+    //     // print_usage(argc, argv, params);
+    //     return 1;
+    // }
+
     // printf("[debug by cxt] use prompt: %s\n", params.prompt.c_str());
     // printf("[debug by cxt] concat_image_text_embedding: %d\n", params.concat_image_text_embedding);
     // printf("[debug by cxt] bench_perf: %d\n", params.bench_perf);
@@ -350,38 +415,66 @@ int main(int argc, char ** argv) {
 
     auto ctx_internvl = internvl_init_context(&params, model);
     ctx_internvl->ctx = llama_init_context(&params, model);
-    for (auto & image : params.image) {
-        for (int i=0; i<15; i++) {
+    const int64_t t_e2e_start_us = ggml_time_us();
 
-        ctx_internvl->ctx = llama_init_context(&params, model);
-        // // clear kv cache
-        // llama_kv_cache_clear(ctx_internvl->ctx);
+    if (params.image.empty() && !prompt_contains_image(params.prompt)){
+        process_prompt_no_image(ctx_internvl, &params, params.prompt);
+    }
+    else{
+        for (auto & image : params.image) {
+            auto image_embed = load_image(ctx_internvl, &params, image); // ok to load image, then fail
+            if (!image_embed) {
+                std::cerr << "error: failed to load image " << image << ". Terminating\n\n";
+                return 1;
+            }
 
-        const int64_t t_e2e_start_us = ggml_time_us();
-        auto image_embed = load_image(ctx_internvl, &params, image); // ok to load image, then fail
-        if (!image_embed) {
-            std::cerr << "error: failed to load image " << image << ". Terminating\n\n";
-            return 1;
-        }
+            // process the prompt
+            process_prompt(ctx_internvl, image_embed, &params, params.prompt);
 
-        // process the prompt
-        process_prompt(ctx_internvl, image_embed, &params, params.prompt);
+            // llama_print_timings(ctx_internvl->ctx);
+            // useless for now
 
-        const int64_t t_e2e_end_us = ggml_time_us();
-        float t_e2e_cost_us = (t_e2e_end_us - t_e2e_start_us) / 1000.0;
-        LOG_TEE("\n%s: %d e2e in %8.2f ms\n", __func__, i, t_e2e_cost_us);
+            // internvl_adaptor_embed_free(prompt_embed);
 
-        // llama_print_timings(ctx_internvl->ctx);
-        // useless for now
-
-        // internvl_adaptor_embed_free(prompt_embed);
-
-        internvl_image_embed_free(image_embed);
-        // ctx_internvl->model = NULL;
-        // internvl_free(ctx_internvl);
-
+            internvl_image_embed_free(image_embed);
         }
     }
+    const int64_t t_e2e_end_us = ggml_time_us();
+    float t_e2e_cost_us = (t_e2e_end_us - t_e2e_start_us) / 1000.0;
+    LOG_TEE("\n%s: e2e in %8.2f ms\n", __func__, t_e2e_cost_us);
+    
+    // for (auto & image : params.image) {
+    //     for (int i=0; i<1; i++) {
+
+    //     ctx_internvl->ctx = llama_init_context(&params, model);
+    //     // // clear kv cache
+    //     // llama_kv_cache_clear(ctx_internvl->ctx);
+
+    //     const int64_t t_e2e_start_us = ggml_time_us();
+    //     auto image_embed = load_image(ctx_internvl, &params, image); // ok to load image, then fail
+    //     if (!image_embed) {
+    //         std::cerr << "error: failed to load image " << image << ". Terminating\n\n";
+    //         return 1;
+    //     }
+
+    //     // process the prompt
+    //     process_prompt(ctx_internvl, image_embed, &params, params.prompt);
+
+    //     const int64_t t_e2e_end_us = ggml_time_us();
+    //     float t_e2e_cost_us = (t_e2e_end_us - t_e2e_start_us) / 1000.0;
+    //     LOG_TEE("\n%s: %d e2e in %8.2f ms\n", __func__, i, t_e2e_cost_us);
+
+    //     // llama_print_timings(ctx_internvl->ctx);
+    //     // useless for now
+
+    //     // internvl_adaptor_embed_free(prompt_embed);
+
+    //     internvl_image_embed_free(image_embed);
+    //     // ctx_internvl->model = NULL;
+    //     // internvl_free(ctx_internvl);
+
+    //     }
+    // }
 
     llama_free_model(model);
     
