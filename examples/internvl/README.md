@@ -2,8 +2,8 @@
 
 We made the following changes to the original repo:
 
-* We have added support for Internvl models whose language model is the Qwen series model
-* We have added support for running internvl models without inputting images, but only for dialogue
+* We've enhanced the llama.cpp framework to enable GGUF format conversion for InternVL models, including both InternLM-based and QwenLM-based language architectures.
+* The converted InternVL GGUF model supports both multimodal input (text and images) and automatically switches to text-only mode when no images are provided.
 
 Currently this implementation supports all InternVL models, we take [InternVL-4B](https://huggingface.co/OpenGVLab/InternVL2_5-4B) as example. 
 
