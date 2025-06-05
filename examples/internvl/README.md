@@ -4,8 +4,26 @@ We made the following changes to the original repo:
 
 * We've enhanced the llama.cpp framework to enable GGUF format conversion for InternVL models, including both InternLM-based and QwenLM-based language architectures.
 * The converted InternVL GGUF model supports both multimodal input (text and images) and automatically switches to text-only mode when no images are provided.
+* We have evaluated the models converted by llama.cpp-For-InternVL on two datasets and presented the results.
 
 Currently this implementation supports all InternVL models, we take [InternVL-4B](https://huggingface.co/OpenGVLab/InternVL2_5-4B) as example. 
+
+## Performance
+
+Performance on **MMBench** dataset:
+
+| Model                             |   MMBench-Dev-EN      |  MMBench-Dev-CN   | 
+|:----------------------------------|:--------: |:--------:|
+| InternVL2_5-4B                    |   82.1                |  79.6             | 
+| InternVL2_5-4B-gguf               |   81.5                |  79.0             |
+
+Performance on **MM-Vet** dataset:
+
+| Model                             |   rec     |  ocr  |  know   |   gen   | spat |   math   |   total    |  
+|:----------------------------------|:--------: |:--------:|:--------:|:---------:|:---------:|:--------:|:--------:|
+| InternVL2_5-4B                    |   47.2    |    65.2  |   35.8   |   42.5    |   54.5    |   69.2   |   54.9   |  
+| InternVL2_5-4B-gguf               |   46.1    |    56.9  |   36.9   |   44.1    |    46.0   |    49.6  |   49.1   | 
+
 
 ## Usage
 1. Install common
@@ -104,7 +122,7 @@ Replace the `InternVL2_5-4B-chat/config.json` with `llm_config` item in `InternV
 
 Delete all parameters except `language_model.XXX` in the `InternVL2_5-4B-chat/model.safetensors.index.json` file (content after line 441). Then delete the `language_model.` from the parameter name for all the remaining parameters
 
-The examples of these two files can be found in `llama.cpp/example/internvl/json_example/`
+The examples of these two files can be found in [`llama.cpp/example/internvl/json_example/`](https://github.com/FrontierLabs/llama.cpp-For-InternVL/tree/internvl/examples/internvl/json_example)
 
 Use `convert_hf_to_gguf.py` to convert the language model to GGUF:
 
